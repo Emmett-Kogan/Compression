@@ -4,10 +4,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <string.h>
 
 #include <unordered_map>
 #include <vector>
 #include <set>
+#include <string>
 
 #define INPUT_C "original.txt"
 #define OUTPUT_C "cout.txt"
@@ -17,7 +19,7 @@
 
 #define ERREXIT(s) { fprintf(stderr, s); exit((-1)); }
 
-using std::unordered_map, std::vector, std::set;
+using std::unordered_map, std::vector, std::set, std::string;
 
 void compress(FILE *fptr_in, FILE *fptr_out);
 void decompress(FILE *fptr_in, FILE *fptr_out);
@@ -112,7 +114,32 @@ void compress(FILE *fp_in, FILE *fp_out) {
 }
 
 void decompress(FILE *fp_in, FILE *fp_out) {
+    string bstr;
+    uint32_t dictionary[16];
 
+    // Goal is to read in the file as a bigass binary string
+    char buffer[34];
+    while (fgets(buffer, 34, fp_in)) {
+        printf("%s", buffer);
+        if (!strncmp(buffer, "xxxx", 4))
+            break;
+        for (int i = 0; i < 34; i++)
+            if (buffer[i] == '0' || buffer[i] == '1')
+                bstr += buffer[i];
+    }
+    bstr += '\0';
+
+    // At this point, we have read the line with "xxxx" and
+    // the next line we read will be the first line of the dictionary
+    // Then load the dictionary
+    for (int i = 0; i < 16; i++) {
+        fgets(buffer, 34, fp_in);
+        dictionary[i] = btoi(buffer, 32);
+        printf("%.032b\n", dictionary[i]);
+    }
+
+
+    // Then parse the bigass string and decompress
 }
 
 uint32_t btoi(const char *const str, uint32_t len) {

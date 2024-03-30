@@ -34,4 +34,13 @@ For the sake of the proffessor, I will public my solution after it is overdue an
         for (int i = 0; i < 8; i++)
         printf("%03b\n", i);
 
+        unsigned long i = 0;
+    while (i < bstr.length()) {
+        
+        if (i % 32 == 0 && i)
+            printf("\n");
+        printf("%c", bstr[i]);
+        i++;
+    }
+
 ```
