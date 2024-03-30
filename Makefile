@@ -2,13 +2,13 @@ CC=gcc
 CPP=g++
 CFLAGS=-Wall
 
-default: main
+default: SIM
 
 debug: CFLAGS += -g -D DEBUG
-debug: main
+debug: SIM
 
-main: main.cpp
+SIM: main.cpp
 	@$(CPP) $(CFLAGS) -o $@ $^
 
 clean:
-	@rm -f main *.o dout.txt cout.txt
+	@rm -f SIM *.o dout.txt cout.txt
