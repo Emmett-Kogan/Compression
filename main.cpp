@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,29 +6,28 @@
 #include <string.h>
 
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <set>
 #include <string>
-
-#include <iostream>
 
 #define INPUT_C "original.txt"
 #define OUTPUT_C "cout.txt"
 #define INPUT_D "compressed.txt"
 #define OUTPUT_D "dout.txt"
 #define DICTIONARY_SIZE 16
-
 #define ERREXIT(s) { fprintf(stderr, s); exit((-1)); }
+#define BIT(n) (1<<(n))
 
-using std::unordered_map, std::vector, std::set, std::string, std::stoi;
 using namespace std;
 
 void compress(FILE *const fptr_in, FILE *const fptr_out);
 void decompress(FILE *const fptr_in, FILE *const fptr_out);
 uint32_t btoi(const char *const str, uint32_t len);
+uint32_t max(uint32_t x, uint32_t y);
 
 // Note that this does not include the 3 bit format identifier, it's just the rest of the format
-uint32_t FORMAT_LENGTH[8] = {32, 3, 13, 9, 9, 9, 14, 4};
+static uint32_t FORMAT_LENGTH[8] = {32, 3, 13, 9, 9, 9, 14, 4};
 
 int main(int argc, char **argv) 
 {
@@ -70,11 +68,9 @@ void compress(FILE *const fp_in, FILE *const fp_out)
         else
             counts[tmp] =1;
     }
-    
-    // Make dictionary
-    uint32_t dictionary[16];
 
-    // For each entry in the dictionary
+    // Make dictionary
+    uint32_t dictionary[DICTIONARY_SIZE];
     for (int i = 0; i < DICTIONARY_SIZE; i++) {
         // Get set of lines with max count
         uint32_t max_count = 0;
@@ -104,13 +100,164 @@ void compress(FILE *const fp_in, FILE *const fp_out)
             // Bind value to dictionary and remove entry from hash map
             dictionary[i] = *max_lines.begin();
             counts.erase(*max_lines.begin());
-            
         }
     }
 
     // Now the actual compression
-    for (auto line : lines) {
+    uint32_t i = 0;
+    string bstr;
+    while (i < lines.size()) {
+        // compare line with lines in dictionary
+        // count the thing with the min_differences, and depending on min_differences I can do something
+        pair<uint32_t, uint32_t> comps[DICTIONARY_SIZE];
+        for (int j = 0; j < DICTIONARY_SIZE; j++) {
+            uint32_t count = 0, longest_run = 0, current_run = 0, tmp = lines[i]^dictionary[j];
+            for (int k = 0; k < 32; k++) {
+                if (tmp & BIT(0)) {
+                    current_run++;
+                    count++;
+                } else {
+                    longest_run = max(current_run, longest_run);
+                    current_run = 0;
+                }
+                tmp>>=1;
+            }
+            comps[j] = make_pair(count, max(current_run, longest_run));
+        }
 
+        // Now I have an array of bit differences and longest 
+        // runs and this shares the same index as the dictionary
+
+        // Need to check logic for identifying format 6
+        uint32_t best_format = 0, best_dict_val = 0;
+        for (int j = 0; j < DICTIONARY_SIZE; j++) {
+            // If matches anything in the dictionary that's the best option
+            
+            if (comps[j].first == 0) {
+                best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[7] ? j : best_dict_val;
+                best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[7] ? 7 : best_format;
+            }
+            if (comps[j].first == 1) {
+                best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[3] ? j : best_dict_val;
+                best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[3] ? 3 : best_format;
+            }
+            if (comps[j].first == 2 && comps[j].second == 2) {
+                best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[4] ? j : best_dict_val;        
+                best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[4] ? 4 : best_format;  
+            }
+            if (comps[j].first == 4 && comps[j].second == 4) {
+                best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[5] ? j : best_dict_val;
+                best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[5] ? 5 : best_format;
+            }
+            if (i > 0 && lines[i] == lines[i-1])
+                best_format = 1;
+            if (comps[j].first <= 4) {
+                uint32_t tmp = lines[i]^dictionary[j];
+                uint32_t bits[4], index = 0;
+                for (int i = 0; i < 32; i++)
+                    if (tmp & BIT(0))
+                        bits[index++] = 32-i-1;
+
+                if (index == 4 && bits[1] == bits[0]-1 && bits[3] == bits[2]-1) {
+                    best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[6] ? j : best_dict_val;
+                    best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[6] ? 6 : best_format;
+                }
+                
+                if (index >= 2 && bits[index-1] - bits[0] < 4) {
+                    best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[2] ? j : best_dict_val;
+                    best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[2] ? 2 : best_format;
+
+                }
+            }
+        }
+
+        // Append format
+        char tmp_buf[32];
+        snprintf(tmp_buf, 4, "%.03b", best_format);
+        for (int j = 0; j < 3; j++) bstr.push_back(tmp_buf[j]);
+
+        // Append encoding
+        uint8_t inc_flag = 1;
+        switch(best_format) {
+        case 0:
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.032b", lines[i]);
+            break;
+        case 1:
+        {
+            uint32_t count = 0;
+            for (int j = 0; j < 8; j++) {
+                if (lines[i+j] != lines[i+j-1]) break;
+                count++;
+            }
+
+            #ifdef DEBUG
+            printf("RLE Count: %d\n", count);
+            #endif
+
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.03b", count-1);
+            i+=count;
+            inc_flag = 0;
+            break;
+        }
+        case 2:
+        {
+            uint32_t tmp = lines[i]^dictionary[best_dict_val];
+            uint32_t sl;
+            for (int j = 0; j < 32; j++) {
+                if (tmp & BIT(31)) {
+                    sl = j;
+                    break;
+                }
+                tmp<<=1;
+            }
+            
+            uint8_t bm = 0b1000;    // first bit is always set
+            for (int j = 1; j < 4; j++) bm |= tmp & BIT(sl+j);
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.05b%.04b%.04b", sl, bm, best_dict_val);
+            break;
+        }
+        case 3:
+        case 4:
+        case 5:
+        {
+            uint32_t tmp = lines[i]^dictionary[best_dict_val];
+            uint32_t sl;
+            for (int i = 0; i < 32; i++) {
+                if (tmp & BIT(31)) {
+                    sl = i;
+                    break;
+                }
+                tmp<<=1;
+            }
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.05b%.04b", sl, best_dict_val);
+            break;
+        }
+        case 6:
+        {
+            uint32_t tmp = lines[i]^dictionary[best_dict_val];
+            uint32_t bits[4], index = 0;
+            for (int i = 0; i < 32; i++) {
+                if (tmp & BIT(31)) {
+                    bits[index++] = i;
+                    break;
+                }
+                tmp<<=1;
+            }
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.05b%.05b%.04b", bits[0], bits[2], best_dict_val);
+            break;
+        }
+        case 7:   
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.04b", best_dict_val);
+            break; 
+        default:
+            ERREXIT("Something went quite wrong\n");
+            break;
+        }
+
+        // so long as I move i to the last line being done with RLE then this is fine
+        printf("%.03b %s\n", best_format, tmp_buf);
+        for (uint32_t j = 0; j < FORMAT_LENGTH[best_format]; j++) bstr.push_back(tmp_buf[j]);
+        if (inc_flag) i++;
     }
     // What this will probably look like:
         // In order of which one compresses most
@@ -144,7 +291,7 @@ void compress(FILE *const fp_in, FILE *const fp_out)
 void decompress(FILE *const fp_in, FILE *const fp_out) 
 {
     string bstr;
-    uint32_t dictionary[16];
+    uint32_t dictionary[DICTIONARY_SIZE];
 
     // Read just compressed text data into one string
     char buffer[34];
@@ -265,4 +412,9 @@ uint32_t btoi(const char *const str, uint32_t len) {
     }
 
     return acc;
+}
+
+uint32_t max(uint32_t x, uint32_t y) {
+    uint32_t tmp = ((int32_t) (x-y))>>31;
+    return ((x & ~tmp) | (y & tmp));
 }
