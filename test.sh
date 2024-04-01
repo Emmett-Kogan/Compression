@@ -11,7 +11,7 @@ fi
 
 # Testing decompression
 timeout 10s ./SIM 2
-if [[ $? -eq 0]]; then
+if [[ $? -eq 0 ]]; then
     diff -w -B dout.txt original.txt
     if [[ $? -ne 0 ]]; then
         echo "Decompression output does not match given output"

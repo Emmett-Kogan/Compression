@@ -4,43 +4,5 @@ For the sake of the proffessor, I will public my solution after it is overdue an
 ## Contributors
 1. Emmett Kogan
 
-## Useful snippets for later
-```
-    // Get each line of the input file
-    char buffer[34];
-    while(fgets(buffer, 34, fptr_in)) {
-        // If "xxxx", then need to load dictionary feon file
-        if (!strncmp(buffer, "xxxx", 4)) {
-            load_dictionary();
-            // We also no longer need to read lines
-            break;
-        }
-        
-        uint32_t tmp = btoi(buffer, 32);
-        printf("%032b\n", tmp);
-        lines.push_back(tmp);
-        if(counts.find(tmp) != counts.end())
-            counts[tmp]++;
-        else
-            counts[tmp] = 1;
-    }
-
-    // If compressing then need to initialize the dictionary
-    if (arg == 1) {
-        write_dictionary();
-    }
-
-
-        for (int i = 0; i < 8; i++)
-        printf("%03b\n", i);
-
-        unsigned long i = 0;
-    while (i < bstr.length()) {
-        
-        if (i % 32 == 0 && i)
-            printf("\n");
-        printf("%c", bstr[i]);
-        i++;
-    }
-
-```
+## Comments
+The way the project specifies how to handle the RLE case where say, the next 28 instructions are the same is bad. The document specifies that you should do a format 7 dictionary lookup, followed by a format 1 RLE encoding (for the max 8 length), and repeat that until all 28 have been encoded. So 1+8 + 1+8+ 1+8 + 1. This is worse than what you can just do with RLE followed by RLE. The way I made my decompression, I originally was able to do 1+8+8+8+3 with one dictionary lookup, followed by 3 RLEs that all are the same. This takes up 7+4\*6 (31) bits, whereas the assignment's specifcation would use 4\*7+3*6 (46) bits. If I wanted to implement this the better way, I would just remove the logic in the format 2 handling that checks for if the previous format was also a format 2 instruction, and prevents that.

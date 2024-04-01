@@ -2,11 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <ctype.h>
 #include <string.h>
 
 #include <unordered_map>
-#include <utility>
 #include <vector>
 #include <set>
 #include <string>
@@ -104,7 +102,7 @@ void compress(FILE *const fp_in, FILE *const fp_out)
     }
 
     // Now the actual compression
-    uint32_t i = 0;
+    uint32_t i = 0, prev_format = 8;
     string bstr;
     while (i < lines.size()) {
         // compare line with lines in dictionary
@@ -125,18 +123,16 @@ void compress(FILE *const fp_in, FILE *const fp_out)
             comps[j] = make_pair(count, max(current_run, longest_run));
         }
 
-        // Now I have an array of bit differences and longest 
-        // runs and this shares the same index as the dictionary
-
-        // Need to check logic for identifying format 6
+        // Figure out which format is best
         uint32_t best_format = 0, best_dict_val = 0;
         for (int j = 0; j < DICTIONARY_SIZE; j++) {
-            // If matches anything in the dictionary that's the best option
-            
+            // Check if dictionary match
             if (comps[j].first == 0) {
                 best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[7] ? j : best_dict_val;
                 best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[7] ? 7 : best_format;
             }
+
+            // 1-bit, 2-bit and 4-bit consecutive mismatch cases
             if (comps[j].first == 1) {
                 best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[3] ? j : best_dict_val;
                 best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[3] ? 3 : best_format;
@@ -149,24 +145,34 @@ void compress(FILE *const fp_in, FILE *const fp_out)
                 best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[5] ? j : best_dict_val;
                 best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[5] ? 5 : best_format;
             }
-            if (i > 0 && lines[i] == lines[i-1])
+
+            // RLE case, check and make sure previous format wasn't also an RLE format
+            if (i > 0 && lines[i] == lines[i-1] && prev_format != 1)
                 best_format = 1;
-            if (comps[j].first <= 4) {
+
+            // Format 2 and 6 case: where bit differences must be between 2 and 4
+            if (comps[j].first <= 4 && comps[j].first >= 2) {
                 uint32_t tmp = lines[i]^dictionary[j];
                 uint32_t bits[4], index = 0;
-                for (int i = 0; i < 32; i++)
-                    if (tmp & BIT(0))
-                        bits[index++] = 32-i-1;
-
-                if (index == 4 && bits[1] == bits[0]-1 && bits[3] == bits[2]-1) {
+                
+                // Get position of each bit that is different
+                for (int k = 0; k < 32; k++) {
+                    if (tmp & BIT(31)) {
+                        bits[index++] = k;
+                    }
+                    tmp<<=1;
+                }
+                
+                // If there are just 2 different bits, this is format 6
+                if (index == 2) {
                     best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[6] ? j : best_dict_val;
                     best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[6] ? 6 : best_format;
                 }
                 
+                // If between 2 and 4 bits, make sure they are consectuive, then format 2 if they are
                 if (index >= 2 && bits[index-1] - bits[0] < 4) {
                     best_dict_val = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[2] ? j : best_dict_val;
                     best_format = FORMAT_LENGTH[best_format] > FORMAT_LENGTH[2] ? 2 : best_format;
-
                 }
             }
         }
@@ -190,10 +196,6 @@ void compress(FILE *const fp_in, FILE *const fp_out)
                 count++;
             }
 
-            #ifdef DEBUG
-            printf("RLE Count: %d\n", count);
-            #endif
-
             snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.03b", count-1);
             i+=count;
             inc_flag = 0;
@@ -211,8 +213,7 @@ void compress(FILE *const fp_in, FILE *const fp_out)
                 tmp<<=1;
             }
             
-            uint8_t bm = 0b1000;    // first bit is always set
-            for (int j = 1; j < 4; j++) bm |= tmp & BIT(sl+j);
+            uint32_t bm = (lines[i]^dictionary[best_dict_val])>>(32-sl-4);
             snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.05b%.04b%.04b", sl, bm, best_dict_val);
             break;
         }
@@ -237,13 +238,12 @@ void compress(FILE *const fp_in, FILE *const fp_out)
             uint32_t tmp = lines[i]^dictionary[best_dict_val];
             uint32_t bits[4], index = 0;
             for (int i = 0; i < 32; i++) {
-                if (tmp & BIT(31)) {
+                if (tmp & BIT(31))
                     bits[index++] = i;
-                    break;
-                }
                 tmp<<=1;
             }
-            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.05b%.05b%.04b", bits[0], bits[2], best_dict_val);
+
+            snprintf(tmp_buf, FORMAT_LENGTH[best_format]+1, "%.05b%.05b%.04b", bits[0], bits[1], best_dict_val);
             break;
         }
         case 7:   
@@ -255,37 +255,26 @@ void compress(FILE *const fp_in, FILE *const fp_out)
         }
 
         // so long as I move i to the last line being done with RLE then this is fine
-        printf("%.03b %s\n", best_format, tmp_buf);
         for (uint32_t j = 0; j < FORMAT_LENGTH[best_format]; j++) bstr.push_back(tmp_buf[j]);
         if (inc_flag) i++;
+        prev_format = best_format;
     }
-    // What this will probably look like:
-        // In order of which one compresses most
-            // Check if we can compress like this
-                // If we can, compress using that method
-                // note for RLE I might have to mess with which line im on, and count ahead
-        // Add compressed text to large string
-        // repeat until out of lines
 
-        // When checking for the bit differences, may be best to search through dictionary
-        // xor the dictionary values with the line being compressed and count bits that are high
-        // select the compression with the minimum overhead that is compatible
+    // Take binary string and write it to the file
+    for (unsigned long j = 0; j < bstr.length(); j++) {
+        if (j % 32 == 0 && j != 0) fputc('\n', fp_out);
+        fputc(bstr[j], fp_out);
+    }
 
+    // Pad zeros to the end
+    unsigned long n = bstr.length();
+    while (n++%32)
+        fputc('0', fp_out);
 
-    // For now I think I want this to just append to a large string like in decompress
-    // And then later I can write that to a file so that I have newlines all in the correct places
-
-    // Something like this should work, where bstr is the big string
-    // string bstr;
-    // for (unsigned long i = 0; i < bstr.length(); i++) {
-    //     if (i % 32 == 0 && i)
-    //         fputc('\n', fp_out);
-    //     fputc(bstr[i], fp_out);
-    // }
-    // fputs("xxxx\n", fp_out);
-    // for (int i = 0; i < 16; i++)
-    //     fprintf(fp_out, "%.032b\n", dictionary[i]);
-
+    // Add seperator and then write dictionary to file
+    fputs("\nxxxx\n", fp_out);
+    for (int j = 0; j < 16; j++)
+        fprintf(fp_out, "%.032b\n", dictionary[j]);
 }
 
 void decompress(FILE *const fp_in, FILE *const fp_out) 
@@ -354,7 +343,6 @@ void decompress(FILE *const fp_in, FILE *const fp_out)
         {
             // next three bits as an int, +1, and print prev_instruction that many times
             int repeat = stoi(bstr.substr(offset, 3).c_str(), 0, 2)+1;
-            printf("Repeat: %d\n", repeat);
             for (int i = 0; i < repeat; i++)
                 fprintf(fp_out, "%.032b\n", prev_instruction);
             print_flag = 0;
