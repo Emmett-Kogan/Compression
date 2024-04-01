@@ -1,5 +1,5 @@
 # Bitmask-based Code Compression
-For the sake of the proffessor, I will public my solution after it is overdue and no longer accepted. Overall this was pretty fun to do, and reading his (paper)[https://ieeexplore.ieee.org/document/4475257] on bitmask code compression was pretty cool.
+For the sake of the professor, I will public my solution after it is overdue and no longer accepted. Overall this was pretty fun to do, and reading his (paper)[https://ieeexplore.ieee.org/document/4475257] on bitmask code compression was pretty cool.
 
 ## Contributors
 1. Emmett Kogan
